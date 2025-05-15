@@ -1,10 +1,4 @@
-import {
-  View,
-  Text,
-  CheckBox,
-  TouchableOpacity,
-  StyleSheet,
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function StopCard({
@@ -13,19 +7,47 @@ export default function StopCard({
   onCheck,
   onNavigateGoogle,
   onNavigateWaze,
+  onRemove,
+  onEdit,
+  onConfirmDelivery,
+  isCurrentStop, // Indica se é a parada atual
 }) {
   return (
     <View style={styles.card}>
-      <CheckBox value={delivered} onValueChange={onCheck} />
+      <TouchableOpacity onPress={onCheck}>
+        <Ionicons
+          name={delivered ? "checkbox" : "square-outline"}
+          size={24}
+          color="#1E3A8A"
+          style={styles.checkbox}
+        />
+      </TouchableOpacity>
       <Text style={[styles.text, delivered && styles.delivered]}>
         {address}
       </Text>
-      <View style={styles.icons}>
-        <TouchableOpacity onPress={onNavigateGoogle}>
-          <Ionicons name="map" size={24} color="#1E3A8A" style={styles.icon} />
+      <View style={styles.actions}>
+        {isCurrentStop && !delivered && (
+          <TouchableOpacity
+            onPress={onConfirmDelivery}
+            style={styles.confirmButton}
+          >
+            <Text style={styles.confirmText}>Confirmar Entrega</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={onEdit} style={styles.actionButton}>
+          <Ionicons name="pencil" size={20} color="#1E3A8A" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onNavigateWaze}>
-          <Ionicons name="navigate" size={24} color="#1E3A8A" />
+        <TouchableOpacity onPress={onRemove} style={styles.actionButton}>
+          <Ionicons name="trash" size={20} color="#EF4444" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onNavigateGoogle}
+          style={styles.actionButton}
+        >
+          <Ionicons name="map" size={20} color="#1E3A8A" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onNavigateWaze} style={styles.actionButton}>
+          <Ionicons name="navigate" size={20} color="#1E3A8A" />
         </TouchableOpacity>
       </View>
     </View>
@@ -42,6 +64,9 @@ const styles = StyleSheet.create({
     marginVertical: 5,
     elevation: 2,
   },
+  checkbox: {
+    marginRight: 10,
+  },
   text: {
     flex: 1,
     fontSize: 16,
@@ -51,10 +76,23 @@ const styles = StyleSheet.create({
     textDecorationLine: "line-through",
     color: "#6B7280",
   },
-  icons: {
+  actions: {
     flexDirection: "row",
+    alignItems: "center",
   },
-  icon: {
-    marginHorizontal: 5,
+  actionButton: {
+    padding: 8,
+  },
+  confirmButton: {
+    backgroundColor: "#10B981",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  confirmText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "bold",
   },
 });

@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet } from "react-native";
-import CustomButton from "../components/commom/CustomButton";
+import CustomButton from "../components/common/CustomButton";
 
 export default function HomeScreen({ navigation }) {
   return (
