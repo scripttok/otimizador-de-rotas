@@ -1,5 +1,5 @@
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 1000;
+const MIN_REQUEST_INTERVAL = 1500;
 
 export const reverseGeocode = async (latitude, longitude) => {
   try {
@@ -12,7 +12,7 @@ export const reverseGeocode = async (latitude, longitude) => {
     }
 
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=pt-BR`;
-    console.log("Requisição Nominatim:", url);
+    console.log("Requisição Nominatim (reverse):", url);
     const response = await fetch(url, {
       headers: {
         "User-Agent": "OtimizadorDeRotas/1.0 (contato@exemplo.com)",
@@ -35,7 +35,7 @@ export const reverseGeocode = async (latitude, longitude) => {
       throw new Error(`Erro da API: ${data.error}`);
     }
 
-    const address = data.display_name || "Endereço desconhecido";
+    const address = formatAddress(data);
     lastRequestTime = Date.now();
     return address;
   } catch (error) {
@@ -54,12 +54,15 @@ export const geocodeAddress = async (address, userLocation) => {
       );
     }
 
+    const { street, number } = parseAddress(address);
     const encodedAddress = encodeURIComponent(address);
     const proximity = userLocation
       ? `&proximity=${userLocation.latitude},${userLocation.longitude}`
       : "";
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0&bounded=1${proximity}&accept-language=pt-BR`;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0${proximity}&accept-language=pt-BR`;
     console.log("Requisição Nominatim (geocode):", url);
+    console.log("userLocation:", userLocation);
+    console.log("Número digitado:", number);
     const response = await fetch(url, {
       headers: {
         "User-Agent": "OtimizadorDeRotas/1.0 (contato@exemplo.com)",
@@ -86,8 +89,10 @@ export const geocodeAddress = async (address, userLocation) => {
       (item) =>
         item.class === "highway" ||
         item.addresstype === "road" ||
+        item.addresstype === "street" ||
         item.addresstype === "place" ||
-        item.addresstype === "building"
+        item.addresstype === "building" ||
+        item.addresstype === "residential"
     );
     console.log("Resultados filtrados (geocode):", filteredData);
     if (filteredData.length === 0) {
@@ -95,7 +100,7 @@ export const geocodeAddress = async (address, userLocation) => {
     }
 
     const result = filteredData[0];
-    const formattedAddress = formatAddress(result);
+    const formattedAddress = formatAddress(result, number);
     console.log("Endereço formatado retornado:", formattedAddress);
     lastRequestTime = Date.now();
     return {
@@ -109,10 +114,21 @@ export const geocodeAddress = async (address, userLocation) => {
   }
 };
 
-const formatAddress = (data) => {
+const parseAddress = (input) => {
+  const match = input.match(/^(.*?)(,\s*\d+)?$/);
+  if (match) {
+    return {
+      street: match[1].trim(),
+      number: match[2] ? match[2].replace(/,\s*/, "") : null,
+    };
+  }
+  return { street: input.trim(), number: null };
+};
+
+const formatAddress = (data, userNumber) => {
   const address = data.address || {};
   const road = address.road || address.street || "Rua Desconhecida";
-  const houseNumber = address.house_number || "S/N";
+  const houseNumber = userNumber || address.house_number || "S/N";
   const neighbourhood =
     address.neighbourhood ||
     address.suburb ||

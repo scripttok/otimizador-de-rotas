@@ -23,12 +23,14 @@ export default function RouteScreen({ navigation }) {
     longitude: null,
   });
   const [stop, setStop] = useState("");
+  const [stopCoords, setStopCoords] = useState(null);
   const [stops, setStops] = useState([]);
   const [end, setEnd] = useState({
     address: "",
     latitude: null,
     longitude: null,
   });
+  const [endCoords, setEndCoords] = useState(null); // Novo estado para coordenadas do destino
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const scrollViewRef = useRef(null);
@@ -64,7 +66,22 @@ export default function RouteScreen({ navigation }) {
         return;
       }
       try {
-        const result = await geocodeAddress(stop, userLocation);
+        let result;
+        if (stopCoords && stopCoords.formattedAddress) {
+          console.log(
+            "Usando endereço da sugestão (parada):",
+            stopCoords.formattedAddress
+          );
+          result = {
+            address: stopCoords.formattedAddress,
+            latitude: stopCoords.latitude,
+            longitude: stopCoords.longitude,
+          };
+        } else {
+          console.log("Chamando geocodeAddress para parada:", stop);
+          result = await geocodeAddress(stop, userLocation);
+        }
+
         if (!result) {
           Alert.alert(
             "Erro",
@@ -81,12 +98,15 @@ export default function RouteScreen({ navigation }) {
           Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
           return;
         }
+        console.log("Adicionando parada:", result);
         setStops([
           ...stops,
           { id: Date.now().toString(), ...result, delivered: false },
         ]);
         setStop("");
+        setStopCoords(null);
       } catch (error) {
+        console.log("Erro ao adicionar parada:", error);
         Alert.alert("Erro", error.message);
       }
     }
@@ -108,30 +128,15 @@ export default function RouteScreen({ navigation }) {
         Alert.alert("Erro", "O endereço selecionado está fora do Brasil.");
         return;
       }
-      setStart({ address, ...coords });
+      setStart({ address: coords.formattedAddress || address, ...coords });
     } else {
       setStart({ address, latitude: null, longitude: null });
-      if (address.length >= 3) {
-        geocodeAddress(address, userLocation).then((result) => {
-          if (result) {
-            if (
-              result.latitude < -33.0 ||
-              result.latitude > 5.0 ||
-              result.longitude < -74.0 ||
-              result.longitude > -34.0
-            ) {
-              Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
-              return;
-            }
-            setStart(result);
-          }
-        });
-      }
     }
   };
 
   const handleEndChange = (address, coords) => {
     console.log("handleEndChange chamado com:", { address, coords });
+    setEndCoords(coords); // Armazenar coordenadas e formattedAddress
     if (coords) {
       if (
         coords.latitude < -33.0 ||
@@ -142,30 +147,16 @@ export default function RouteScreen({ navigation }) {
         Alert.alert("Erro", "O endereço selecionado está fora do Brasil.");
         return;
       }
-      setEnd({ address, ...coords });
+      setEnd({ address: coords.formattedAddress || address, ...coords });
     } else {
       setEnd({ address, latitude: null, longitude: null });
-      if (address.length >= 3) {
-        geocodeAddress(address, userLocation).then((result) => {
-          if (result) {
-            if (
-              result.latitude < -33.0 ||
-              result.latitude > 5.0 ||
-              result.longitude < -74.0 ||
-              result.longitude > -34.0
-            ) {
-              Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
-              return;
-            }
-            setEnd(result);
-          }
-        });
-      }
     }
   };
 
-  const handleStopChange = (address) => {
+  const handleStopChange = (address, coords) => {
+    console.log("handleStopChange chamado com:", { address, coords });
     setStop(address);
+    setStopCoords(coords);
   };
 
   const handleCalculateRoute = () => {
@@ -183,7 +174,6 @@ export default function RouteScreen({ navigation }) {
     navigation.navigate("RouteView", { start, stops, end });
   };
 
-  // Função para rolar até o campo ativo
   const handleInputFocus = (yPosition) => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({ y: yPosition, animated: true });
@@ -284,7 +274,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 20,
-    paddingBottom: 60, // Aumentado para mais espaço no final
+    paddingBottom: 60,
   },
   label: {
     fontSize: 18,

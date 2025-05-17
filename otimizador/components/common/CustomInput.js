@@ -21,11 +21,24 @@ export default function CustomInput({
   const [isModalVisible, setModalVisible] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [inputNumber, setInputNumber] = useState("");
 
-  const formatAddress = (data) => {
+  const parseAddress = (input) => {
+    const match = input.match(/^(.*?)(,\s*\d+)?$/);
+    if (match) {
+      return {
+        street: match[1].trim(),
+        number: match[2] ? match[2].replace(/,\s*/, "") : null,
+      };
+    }
+    return { street: input.trim(), number: null };
+  };
+
+  const formatAddress = (data, userNumber) => {
     const address = data.address || {};
     const road = address.road || address.street || "Rua Desconhecida";
-    const houseNumber = address.house_number || "S/N";
+    const houseNumber = userNumber || address.house_number || "S/N";
     const neighbourhood =
       address.neighbourhood ||
       address.suburb ||
@@ -42,16 +55,21 @@ export default function CustomInput({
     if (query.length < 3) {
       setSuggestions([]);
       setHasSearched(false);
+      setIsLoading(false);
       return;
     }
     try {
+      setIsLoading(true);
       setHasSearched(true);
+      const { street, number } = parseAddress(query);
+      setInputNumber(number || "");
       const encodedQuery = encodeURIComponent(query);
       const proximity = userLocation
         ? `&proximity=${userLocation.latitude},${userLocation.longitude}`
         : "";
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedQuery}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0&bounded=1${proximity}&accept-language=pt-BR`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedQuery}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0${proximity}&accept-language=pt-BR`;
       console.log("Requisição Nominatim (suggestions):", url);
+      console.log("userLocation:", userLocation);
       const response = await fetch(url, {
         headers: {
           "User-Agent": "OtimizadorDeRotas/1.0 (contato@exemplo.com)",
@@ -61,37 +79,43 @@ export default function CustomInput({
       console.log("Resposta Nominatim:", data);
       if (!data || data.length === 0) {
         setSuggestions([]);
+        setIsLoading(false);
         return;
       }
       const filteredData = data.filter(
         (item) =>
           item.class === "highway" ||
           item.addresstype === "road" ||
+          item.addresstype === "street" ||
           item.addresstype === "place" ||
-          item.addresstype === "building"
+          item.addresstype === "building" ||
+          item.addresstype === "residential"
       );
       console.log("Sugestões filtradas:", filteredData);
       if (filteredData.length === 0) {
         setSuggestions([]);
+        setIsLoading(false);
         return;
       }
       const formattedSuggestions = filteredData.map((item) => ({
         place_id: item.place_id,
-        display_name: formatAddress(item),
+        display_name: formatAddress(item, number),
         latitude: parseFloat(item.lat),
         longitude: parseFloat(item.lon),
       }));
       console.log("Sugestões formatadas:", formattedSuggestions);
       setSuggestions(formattedSuggestions);
       setModalVisible(true);
+      setIsLoading(false);
     } catch (error) {
       console.log("Erro ao buscar sugestões:", error);
       setSuggestions([]);
+      setIsLoading(false);
     }
   };
 
   const debouncedFetchSuggestions = useCallback(
-    debounce((text) => fetchSuggestions(text), 800),
+    debounce((text) => fetchSuggestions(text), 1200),
     [userLocation]
   );
 
@@ -104,10 +128,12 @@ export default function CustomInput({
     onChangeText(suggestion.display_name, {
       latitude: suggestion.latitude,
       longitude: suggestion.longitude,
+      formattedAddress: suggestion.display_name, // Passar endereço formatado
     });
     setModalVisible(false);
     setSuggestions([]);
     setHasSearched(false);
+    setInputNumber("");
   };
 
   return (
@@ -133,6 +159,7 @@ export default function CustomInput({
               setSuggestions([]);
               setHasSearched(false);
               setModalVisible(false);
+              setInputNumber("");
             }}
           >
             <Text style={styles.clearButtonText}>X</Text>
@@ -149,8 +176,14 @@ export default function CustomInput({
         style={styles.modal}
       >
         <View style={styles.modalContent}>
-          {hasSearched && suggestions.length === 0 ? (
-            <Text style={styles.noSuggestions}>Carregando...</Text>
+          {isLoading ? (
+            <Text style={styles.noSuggestions}>Buscando...</Text>
+          ) : hasSearched && suggestions.length === 0 ? (
+            <Text style={styles.noSuggestions}>
+              {inputNumber
+                ? `Endereço com número ${inputNumber} não encontrado. Mostrando ruas próximas.`
+                : "Nenhum endereço encontrado. Tente ser mais específico."}
+            </Text>
           ) : (
             <FlatList
               data={suggestions}
@@ -166,10 +199,11 @@ export default function CustomInput({
                 </TouchableOpacity>
               )}
               ListEmptyComponent={
-                hasSearched ? (
+                hasSearched && !isLoading ? (
                   <Text style={styles.noSuggestions}>
-                    Nenhuma rua ou endereço encontrado. Tente ser mais
-                    específico.
+                    {inputNumber
+                      ? `Endereço com número ${inputNumber} não encontrado. Mostrando ruas próximas.`
+                      : "Nenhum endereço encontrado. Tente ser mais específico."}
                   </Text>
                 ) : null
               }
@@ -210,13 +244,13 @@ const styles = StyleSheet.create({
   },
   modal: {
     justifyContent: "flex-start",
-    marginTop: height * 0.2, // Posiciona o modal mais alto para evitar o teclado
+    marginTop: height * 0.15,
   },
   modalContent: {
     backgroundColor: "#FFFFFF",
     borderRadius: 8,
     padding: 20,
-    maxHeight: height * 0.4, // Limita a altura do modal
+    maxHeight: height * 0.35,
   },
   suggestion: {
     padding: 10,
