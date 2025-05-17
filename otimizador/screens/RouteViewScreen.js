@@ -3,31 +3,51 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import MapView, { Marker } from "react-native-maps";
 import StopCard from "../components/route/StopCard";
 import CustomButton from "../components/common/CustomButton";
-
-const mockStops = [
-  {
-    id: "1",
-    address: "Rua A, 123",
-    delivered: false,
-    latitude: -23.5505,
-    longitude: -46.6333,
-  },
-  {
-    id: "2",
-    address: "Rua B, 456",
-    delivered: true,
-    latitude: -23.5515,
-    longitude: -46.6343,
-  },
-];
+import { useRoute } from "@react-navigation/native";
 
 export default function RouteViewScreen() {
-  const initialRegion = {
-    latitude: -23.5505, // Centro de São Paulo
-    longitude: -46.6333,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
+  const route = useRoute();
+  const { start, stops, end } = route.params || {};
+
+  const initialRegion = start?.latitude
+    ? {
+        latitude: start.latitude,
+        longitude: start.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }
+    : {
+        latitude: -23.5505, // Fallback: São Paulo
+        longitude: -46.6333,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      };
+
+  const markers = [
+    ...(start?.latitude
+      ? [
+          {
+            id: "start",
+            address: start.address,
+            latitude: start.latitude,
+            longitude: start.longitude,
+            delivered: false,
+          },
+        ]
+      : []),
+    ...stops.map((stop) => ({ ...stop, delivered: false })),
+    ...(end?.latitude
+      ? [
+          {
+            id: "end",
+            address: end.address,
+            latitude: end.latitude,
+            longitude: end.longitude,
+            delivered: false,
+          },
+        ]
+      : []),
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -36,18 +56,21 @@ export default function RouteViewScreen() {
         initialRegion={initialRegion}
         showsUserLocation={true}
       >
-        {mockStops.map((stop) => (
+        {markers.map((marker) => (
           <Marker
-            key={stop.id}
-            coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
-            title={stop.address}
-            pinColor={stop.delivered ? "green" : "red"}
+            key={marker.id}
+            coordinate={{
+              latitude: marker.latitude,
+              longitude: marker.longitude,
+            }}
+            title={marker.address}
+            pinColor={marker.delivered ? "green" : "red"}
           />
         ))}
       </MapView>
       <Text style={styles.info}>Tempo Estimado: 45 min | Distância: 12 km</Text>
       <FlatList
-        data={mockStops}
+        data={stops}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <StopCard
