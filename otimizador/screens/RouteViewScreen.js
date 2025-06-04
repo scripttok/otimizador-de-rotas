@@ -5,7 +5,10 @@ import MapView, { Marker, Polyline } from "react-native-maps";
 import StopCard from "../components/route/StopCard";
 import CustomButton from "../components/common/CustomButton";
 import { useRoute } from "@react-navigation/native";
-import { calculateRoute } from "../services/routeCalculation";
+import {
+  calculateRoute,
+  sortStopsByProximity,
+} from "../services/routeCalculation";
 
 export default function RouteViewScreen() {
   const route = useRoute();
@@ -29,17 +32,16 @@ export default function RouteViewScreen() {
 
   const fetchRoute = async () => {
     try {
-      const result = await calculateRoute(start, stops, end);
+      // Ordenar paradas por proximidade
+      const orderedStops = sortStopsByProximity(start, stops, end);
+      setStops(orderedStops);
+
+      const result = await calculateRoute(start, orderedStops, end);
       setRouteInfo({
         distance: result.distance,
         duration: result.duration,
         path: result.path,
       });
-      if (result.optimizedOrder && stops.length > 0) {
-        const orderedIndices = result.optimizedOrder.slice(1, -1);
-        const reorderedStops = orderedIndices.map((index) => stops[index - 1]);
-        setStops(reorderedStops);
-      }
     } catch (error) {
       console.log("Erro ao carregar rota:", error);
       Alert.alert("Erro", error.message);
