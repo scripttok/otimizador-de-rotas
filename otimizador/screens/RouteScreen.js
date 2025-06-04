@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -30,10 +30,14 @@ export default function RouteScreen({ navigation }) {
     latitude: null,
     longitude: null,
   });
-  const [endCoords, setEndCoords] = useState(null); // Novo estado para coordenadas do destino
+  const [endCoords, setEndCoords] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const scrollViewRef = useRef(null);
+
+  useEffect(() => {
+    console.log("RouteScreen renderizada");
+  }, []);
 
   const handleUseLocation = async () => {
     setIsLoading(true);
@@ -136,7 +140,7 @@ export default function RouteScreen({ navigation }) {
 
   const handleEndChange = (address, coords) => {
     console.log("handleEndChange chamado com:", { address, coords });
-    setEndCoords(coords); // Armazenar coordenadas e formattedAddress
+    setEndCoords(coords);
     if (coords) {
       if (
         coords.latitude < -33.0 ||
@@ -160,18 +164,43 @@ export default function RouteScreen({ navigation }) {
   };
 
   const handleCalculateRoute = () => {
+    console.log("handleCalculateRoute chamado");
+    console.log("Estado atual:", { start, stops, end });
+
     if (!start.address || !end.address) {
+      console.log("Validação falhou: início ou destino final não preenchidos");
       Alert.alert("Erro", "Por favor, preencha o início e o destino final.");
       return;
     }
     if (!start.latitude || !end.latitude) {
+      console.log(
+        "Validação falhou: coordenadas inválidas para início ou destino"
+      );
       Alert.alert(
         "Erro",
         "Endereços inválidos. Selecione endereços válidos nas sugestões."
       );
       return;
     }
-    navigation.navigate("RouteView", { start, stops, end });
+    if (
+      stops.length > 0 &&
+      stops.some((stop) => !stop.latitude || !stop.longitude)
+    ) {
+      console.log("Validação falhou: alguma parada sem coordenadas válidas");
+      Alert.alert(
+        "Erro",
+        "Uma ou mais paradas possuem coordenadas inválidas. Selecione endereços válidos."
+      );
+      return;
+    }
+
+    console.log("Navegando para RouteView com:", { start, stops, end });
+    try {
+      navigation.navigate("RouteView", { start, stops, end });
+    } catch (error) {
+      console.log("Erro na navegação:", error);
+      Alert.alert("Erro", "Falha ao navegar para a tela de rota.");
+    }
   };
 
   const handleInputFocus = (yPosition) => {

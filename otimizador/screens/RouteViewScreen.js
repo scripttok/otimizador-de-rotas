@@ -1,325 +1,210 @@
-import { useState, useRef } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
-import CustomInput from "../components/common/CustomInput";
+import { useState, useEffect } from "react";
+import { View, Text, FlatList, StyleSheet, Alert, Linking } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import StopCard from "../components/route/StopCard";
 import CustomButton from "../components/common/CustomButton";
-import { MAX_STOPS } from "../utils/constants";
-import { getCurrentLocation } from "../services/geolocation";
-import { reverseGeocode, geocodeAddress } from "../services/geocoding";
+import { useRoute } from "@react-navigation/native";
+import { calculateRoute } from "../services/routeCalculation";
 
-export default function RouteScreen({ navigation }) {
-  const [start, setStart] = useState({
-    address: "",
-    latitude: null,
-    longitude: null,
+export default function RouteViewScreen() {
+  const route = useRoute();
+  const { start, stops: initialStops, end } = route.params || {};
+  const [routeInfo, setRouteInfo] = useState({
+    distance: null,
+    duration: null,
+    path: [],
   });
-  const [stop, setStop] = useState("");
-  const [stopCoords, setStopCoords] = useState(null);
-  const [stops, setStops] = useState([]);
-  const [end, setEnd] = useState({
-    address: "",
-    latitude: null,
-    longitude: null,
-  });
-  const [endCoords, setEndCoords] = useState(null); // Novo estado para coordenadas do destino
-  const [isLoading, setIsLoading] = useState(false);
-  const [userLocation, setUserLocation] = useState(null);
-  const scrollViewRef = useRef(null);
+  const [stops, setStops] = useState(initialStops || []);
 
-  const handleUseLocation = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    console.log("RouteViewScreen renderizada");
+    console.log("initialStops:", initialStops);
+    console.log("routeInfo:", routeInfo);
+    console.log("stops:", stops);
+    if (start && end) {
+      fetchRoute();
+    }
+  }, [start, initialStops, end]);
+
+  const fetchRoute = async () => {
     try {
-      const { latitude, longitude } = await getCurrentLocation();
-      console.log("Coordenadas obtidas:", { latitude, longitude });
-      const address = await reverseGeocode(latitude, longitude);
-      setStart({ address, latitude, longitude });
-      setUserLocation({ latitude, longitude });
-      console.log("Estado start após atualização:", {
-        address,
-        latitude,
-        longitude,
+      const result = await calculateRoute(start, stops, end);
+      setRouteInfo({
+        distance: result.distance,
+        duration: result.duration,
+        path: result.path,
       });
+      if (result.optimizedOrder && stops.length > 0) {
+        const orderedIndices = result.optimizedOrder.slice(1, -1);
+        const reorderedStops = orderedIndices.map((index) => stops[index - 1]);
+        setStops(reorderedStops);
+      }
     } catch (error) {
-      console.log("Erro ao usar localização:", error);
+      console.log("Erro ao carregar rota:", error);
       Alert.alert("Erro", error.message);
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const addStop = async () => {
-    if (stop.trim()) {
-      if (stops.length >= MAX_STOPS) {
-        Alert.alert(
-          "Limite Atingido",
-          `Você pode adicionar até ${MAX_STOPS} paradas.`
-        );
-        return;
+  const onNavigateGoogle = (address) => {
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      address
+    )}`;
+    Linking.openURL(url).catch((err) => {
+      console.log("Erro ao abrir Google Maps:", err);
+      Alert.alert("Erro", "Não foi possível abrir o Google Maps.");
+    });
+  };
+
+  const onNavigateWaze = (address) => {
+    const url = `https://waze.com/ul?q=${encodeURIComponent(address)}`;
+    Linking.openURL(url).catch((err) => {
+      console.log("Erro ao abrir Waze:", err);
+      Alert.alert("Erro", "Não foi possível abrir o Waze.");
+    });
+  };
+
+  const onConfirmDelivery = (stopId) => {
+    setStops((prevStops) =>
+      prevStops
+        .map((stop) =>
+          stop.id === stopId ? { ...stop, delivered: true } : stop
+        )
+        .filter((stop) => !stop.delivered)
+    );
+  };
+
+  const initialRegion = start?.latitude
+    ? {
+        latitude: start.latitude,
+        longitude: start.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
       }
-      try {
-        let result;
-        if (stopCoords && stopCoords.formattedAddress) {
-          console.log(
-            "Usando endereço da sugestão (parada):",
-            stopCoords.formattedAddress
-          );
-          result = {
-            address: stopCoords.formattedAddress,
-            latitude: stopCoords.latitude,
-            longitude: stopCoords.longitude,
-          };
-        } else {
-          console.log("Chamando geocodeAddress para parada:", stop);
-          result = await geocodeAddress(stop, userLocation);
-        }
+    : {
+        latitude: -23.5505, // Fallback: São Paulo
+        longitude: -46.6333,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      };
 
-        if (!result) {
-          Alert.alert(
-            "Erro",
-            "Endereço não encontrado. Tente outro endereço ou selecione uma sugestão."
-          );
-          return;
-        }
-        if (
-          result.latitude < -33.0 ||
-          result.latitude > 5.0 ||
-          result.longitude < -74.0 ||
-          result.longitude > -34.0
-        ) {
-          Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
-          return;
-        }
-        console.log("Adicionando parada:", result);
-        setStops([
-          ...stops,
-          { id: Date.now().toString(), ...result, delivered: false },
-        ]);
-        setStop("");
-        setStopCoords(null);
-      } catch (error) {
-        console.log("Erro ao adicionar parada:", error);
-        Alert.alert("Erro", error.message);
-      }
-    }
-  };
-
-  const removeStop = (id) => {
-    setStops(stops.filter((item) => item.id !== id));
-  };
-
-  const handleStartChange = (address, coords) => {
-    console.log("handleStartChange chamado com:", { address, coords });
-    if (coords) {
-      if (
-        coords.latitude < -33.0 ||
-        coords.latitude > 5.0 ||
-        coords.longitude < -74.0 ||
-        coords.longitude > -34.0
-      ) {
-        Alert.alert("Erro", "O endereço selecionado está fora do Brasil.");
-        return;
-      }
-      setStart({ address: coords.formattedAddress || address, ...coords });
-    } else {
-      setStart({ address, latitude: null, longitude: null });
-    }
-  };
-
-  const handleEndChange = (address, coords) => {
-    console.log("handleEndChange chamado com:", { address, coords });
-    setEndCoords(coords); // Armazenar coordenadas e formattedAddress
-    if (coords) {
-      if (
-        coords.latitude < -33.0 ||
-        coords.latitude > 5.0 ||
-        coords.longitude < -74.0 ||
-        coords.longitude > -34.0
-      ) {
-        Alert.alert("Erro", "O endereço selecionado está fora do Brasil.");
-        return;
-      }
-      setEnd({ address: coords.formattedAddress || address, ...coords });
-    } else {
-      setEnd({ address, latitude: null, longitude: null });
-    }
-  };
-
-  const handleStopChange = (address, coords) => {
-    console.log("handleStopChange chamado com:", { address, coords });
-    setStop(address);
-    setStopCoords(coords);
-  };
-
-  const handleCalculateRoute = () => {
-    if (!start.address || !end.address) {
-      Alert.alert("Erro", "Por favor, preencha o início e o destino final.");
-      return;
-    }
-    if (!start.latitude || !end.latitude) {
-      Alert.alert(
-        "Erro",
-        "Endereços inválidos. Selecione endereços válidos nas sugestões."
-      );
-      return;
-    }
-    navigation.navigate("RouteView", { start, stops, end });
-  };
-
-  const handleInputFocus = (yPosition) => {
-    if (scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({ y: yPosition, animated: true });
-    }
-  };
+  const markers = [
+    ...(start?.latitude
+      ? [
+          {
+            id: "start",
+            address: start.address,
+            latitude: start.latitude,
+            longitude: start.longitude,
+            delivered: false,
+          },
+        ]
+      : []),
+    ...stops.map((stop) => ({ ...stop, delivered: stop.delivered || false })),
+    ...(end?.latitude
+      ? [
+          {
+            id: "end",
+            address: end.address,
+            latitude: end.latitude,
+            longitude: end.longitude,
+            delivered: false,
+          },
+        ]
+      : []),
+  ];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidingContainer}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+    <SafeAreaView style={styles.container}>
+      <MapView
+        style={styles.map}
+        initialRegion={initialRegion}
+        showsUserLocation={true}
       >
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.container}
-          contentContainerStyle={styles.contentContainer}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.label}>Início</Text>
-          <CustomInput
-            value={start.address}
-            onChangeText={handleStartChange}
-            placeholder="Digite o endereço inicial"
-            userLocation={userLocation}
-            onFocus={() => handleInputFocus(0)}
+        {markers.map((marker) => (
+          <Marker
+            key={marker.id}
+            coordinate={{
+              latitude: marker.latitude,
+              longitude: marker.longitude,
+            }}
+            title={marker.address}
+            pinColor={marker.delivered ? "green" : "red"}
           />
-          <CustomButton
-            title={isLoading ? "Carregando..." : "Usar Minha Localização"}
-            onPress={handleUseLocation}
-            disabled={isLoading}
-            style={styles.locationButton}
+        ))}
+        {routeInfo.path.length > 0 && (
+          <Polyline
+            coordinates={routeInfo.path}
+            strokeColor="#1E3A8A"
+            strokeWidth={4}
           />
-          <Text style={styles.label}>
-            Paradas ({stops.length}/{MAX_STOPS})
-          </Text>
-          <CustomInput
-            value={stop}
-            onChangeText={handleStopChange}
-            placeholder="Digite uma parada"
-            userLocation={userLocation}
-            onFocus={() => handleInputFocus(200)}
+        )}
+      </MapView>
+      <Text style={styles.info}>
+        Tempo Estimado: {routeInfo.duration || "--"} min | Distância:{" "}
+        {routeInfo.distance || "--"} km
+      </Text>
+      <FlatList
+        data={stops}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <StopCard
+            address={item.address}
+            delivered={item.delivered || false}
+            isCurrentStop={index === 0 && !item.delivered}
+            onCheck={() => alert("Checkbox clicado")}
+            onNavigateGoogle={() => onNavigateGoogle(item.address)}
+            onNavigateWaze={() => onNavigateWaze(item.address)}
+            onRemove={() => alert("Remover clicado")}
+            onEdit={() => alert("Editar clicado")}
+            onConfirmDelivery={() => onConfirmDelivery(item.id)}
           />
-          <CustomButton title="Adicionar Parada" onPress={addStop} />
-          <FlatList
-            data={stops}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <View style={styles.stopItem}>
-                <Text
-                  style={styles.stopText}
-                  numberOfLines={2}
-                  ellipsizeMode="tail"
-                >
-                  {item.address}
-                </Text>
-                <CustomButton
-                  title="Remover"
-                  onPress={() => removeStop(item.id)}
-                  style={styles.removeButton}
-                  textStyle={styles.removeButtonText}
-                />
-              </View>
-            )}
-            style={styles.stopList}
-            scrollEnabled={false}
-          />
-          <Text style={styles.label}>Destino Final</Text>
-          <CustomInput
-            value={end.address}
-            onChangeText={handleEndChange}
-            placeholder="Digite o destino final"
-            userLocation={userLocation}
-            onFocus={() => handleInputFocus(400)}
-          />
-          <CustomButton
-            title="Calcular Rota"
-            onPress={handleCalculateRoute}
-            disabled={!start.address || !end.address}
-            style={styles.calculateButton}
-          />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        )}
+        style={styles.stopList}
+      />
+      <View style={styles.buttonContainer}>
+        <CustomButton
+          title="Reverter para Otimizada"
+          onPress={() => fetchRoute()}
+          style={styles.button}
+        />
+        <CustomButton
+          title="Compartilhar Rota"
+          onPress={() => alert("Compartilhar clicado")}
+          style={styles.button}
+        />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-  },
-  keyboardAvoidingContainer: {
-    flex: 1,
-  },
   container: {
     flex: 1,
+    backgroundColor: "#F3F4F6",
+    paddingHorizontal: 20,
   },
-  contentContainer: {
-    padding: 20,
-    paddingBottom: 60,
+  map: {
+    height: "50%",
+    borderRadius: 8,
+    marginBottom: 10,
   },
-  label: {
-    fontSize: 18,
-    fontWeight: "bold",
+  info: {
+    fontSize: 16,
     color: "#1E3A8A",
     marginVertical: 10,
   },
-  stopItem: {
+  stopList: {
+    flex: 1,
+    marginBottom: 10,
+  },
+  buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    padding: 10,
-    borderRadius: 8,
-    marginVertical: 5,
+    paddingBottom: 20,
   },
-  stopText: {
+  button: {
     flex: 1,
-    fontSize: 14,
-    color: "#1F2937",
-    marginRight: 10,
-  },
-  stopList: {
-    marginVertical: 10,
-    maxHeight: 150,
-  },
-  locationButton: {
-    backgroundColor: "#10B981",
-  },
-  removeButton: {
-    backgroundColor: "#EF4444",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    minWidth: 80,
-  },
-  removeButtonText: {
-    fontSize: 12,
-    color: "#FFFFFF",
-  },
-  calculateButton: {
-    marginTop: 20,
-    marginBottom: 20,
-    paddingVertical: 14,
-    backgroundColor: "#1E3A8A",
-    borderRadius: 8,
+    marginHorizontal: 5,
   },
 });
