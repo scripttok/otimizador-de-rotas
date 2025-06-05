@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import Modal from "react-native-modal";
 import { debounce } from "lodash";
+import { geocodeAddress } from "../../services/geocoding";
 
 export default function CustomInput({
   value,
@@ -35,22 +36,6 @@ export default function CustomInput({
     return { street: input.trim(), number: null };
   };
 
-  const formatAddress = (data, userNumber) => {
-    const address = data.address || {};
-    const road = address.road || address.street || "Rua Desconhecida";
-    const houseNumber = userNumber || address.house_number || "S/N";
-    const neighbourhood =
-      address.neighbourhood ||
-      address.suburb ||
-      address.city_district ||
-      "Bairro Desconhecido";
-    const city =
-      address.city || address.town || address.village || "Cidade Desconhecida";
-    const state = address.state || "SP";
-    const postcode = address.postcode || "00000-000";
-    return `${road}, ${houseNumber}, ${neighbourhood}, ${city}, ${state}, ${postcode}`;
-  };
-
   const fetchSuggestions = async (query) => {
     if (query.length < 3) {
       setSuggestions([]);
@@ -63,48 +48,10 @@ export default function CustomInput({
       setHasSearched(true);
       const { street, number } = parseAddress(query);
       setInputNumber(number || "");
-      const encodedQuery = encodeURIComponent(query);
-      const proximity = userLocation
-        ? `&proximity=${userLocation.latitude},${userLocation.longitude}`
-        : "";
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedQuery}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0${proximity}&accept-language=pt-BR`;
-      console.log("Requisição Nominatim (suggestions):", url);
-      console.log("userLocation:", userLocation);
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "OtimizadorDeRotas/1.0 (contato@exemplo.com)",
-        },
-      });
-      const data = await response.json();
-      console.log("Resposta Nominatim:", data);
-      if (!data || data.length === 0) {
-        setSuggestions([]);
-        setIsLoading(false);
-        return;
-      }
-      const filteredData = data.filter(
-        (item) =>
-          item.class === "highway" ||
-          item.addresstype === "road" ||
-          item.addresstype === "street" ||
-          item.addresstype === "place" ||
-          item.addresstype === "building" ||
-          item.addresstype === "residential"
-      );
-      console.log("Sugestões filtradas:", filteredData);
-      if (filteredData.length === 0) {
-        setSuggestions([]);
-        setIsLoading(false);
-        return;
-      }
-      const formattedSuggestions = filteredData.map((item) => ({
-        place_id: item.place_id,
-        display_name: formatAddress(item, number),
-        latitude: parseFloat(item.lat),
-        longitude: parseFloat(item.lon),
-      }));
-      console.log("Sugestões formatadas:", formattedSuggestions);
-      setSuggestions(formattedSuggestions);
+      console.log("Buscando sugestões para:", query, { userLocation });
+      const suggestions = await geocodeAddress(query, userLocation);
+      console.log("Sugestões recebidas:", suggestions);
+      setSuggestions(suggestions);
       setModalVisible(true);
       setIsLoading(false);
     } catch (error) {
@@ -128,7 +75,7 @@ export default function CustomInput({
     onChangeText(suggestion.display_name, {
       latitude: suggestion.latitude,
       longitude: suggestion.longitude,
-      formattedAddress: suggestion.display_name, // Passar endereço formatado
+      formattedAddress: suggestion.display_name,
     });
     setModalVisible(false);
     setSuggestions([]);

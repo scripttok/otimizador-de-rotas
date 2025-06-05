@@ -14,7 +14,7 @@ import CustomInput from "../components/common/CustomInput";
 import CustomButton from "../components/common/CustomButton";
 import { MAX_STOPS } from "../utils/constants";
 import { getCurrentLocation } from "../services/geolocation";
-import { reverseGeocode, geocodeAddress } from "../services/geocoding";
+import { reverseGeocode } from "../services/geocoding";
 
 export default function RouteScreen({ navigation }) {
   const [start, setStart] = useState({
@@ -23,20 +23,19 @@ export default function RouteScreen({ navigation }) {
     longitude: null,
   });
   const [stop, setStop] = useState("");
-  const [stopCoords, setStopCoords] = useState(null);
   const [stops, setStops] = useState([]);
   const [end, setEnd] = useState({
     address: "",
     latitude: null,
     longitude: null,
   });
-  const [endCoords, setEndCoords] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const scrollViewRef = useRef(null);
 
   useEffect(() => {
     console.log("RouteScreen renderizada");
+    handleUseLocation();
   }, []);
 
   const handleUseLocation = async () => {
@@ -60,7 +59,7 @@ export default function RouteScreen({ navigation }) {
     }
   };
 
-  const addStop = async () => {
+  const addStop = () => {
     if (stop.trim()) {
       if (stops.length >= MAX_STOPS) {
         Alert.alert(
@@ -69,50 +68,39 @@ export default function RouteScreen({ navigation }) {
         );
         return;
       }
-      try {
-        let result;
-        if (stopCoords && stopCoords.formattedAddress) {
-          console.log(
-            "Usando endereço da sugestão (parada):",
-            stopCoords.formattedAddress
-          );
-          result = {
-            address: stopCoords.formattedAddress,
-            latitude: stopCoords.latitude,
-            longitude: stopCoords.longitude,
-          };
-        } else {
-          console.log("Chamando geocodeAddress para parada:", stop);
-          result = await geocodeAddress(stop, userLocation);
-        }
-
-        if (!result) {
-          Alert.alert(
-            "Erro",
-            "Endereço não encontrado. Tente outro endereço ou selecione uma sugestão."
-          );
-          return;
-        }
-        if (
-          result.latitude < -33.0 ||
-          result.latitude > 5.0 ||
-          result.longitude < -74.0 ||
-          result.longitude > -34.0
-        ) {
-          Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
-          return;
-        }
-        console.log("Adicionando parada:", result);
-        setStops([
-          ...stops,
-          { id: Date.now().toString(), ...result, delivered: false },
-        ]);
-        setStop("");
-        setStopCoords(null);
-      } catch (error) {
-        console.log("Erro ao adicionar parada:", error);
-        Alert.alert("Erro", error.message);
+      const lastStop = stops.find((s) => s.address === stop);
+      if (lastStop) {
+        Alert.alert("Erro", "Esta parada já foi adicionada.");
+        return;
       }
+      // Verificar se o endereço tem coordenadas válidas (fornecidas por CustomInput)
+      const stopData = stops.find((s) => s.address === stop) || {
+        address: stop,
+        latitude: null,
+        longitude: null,
+      };
+      if (!stopData.latitude || !stopData.longitude) {
+        Alert.alert(
+          "Erro",
+          "Selecione um endereço válido nas sugestões para a parada."
+        );
+        return;
+      }
+      if (
+        stopData.latitude < -33.0 ||
+        stopData.latitude > 5.0 ||
+        stopData.longitude < -74.0 ||
+        stopData.longitude > -34.0
+      ) {
+        Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
+        return;
+      }
+      console.log("Adicionando parada:", stopData);
+      setStops([
+        ...stops,
+        { id: Date.now().toString(), ...stopData, delivered: false },
+      ]);
+      setStop("");
     }
   };
 
@@ -140,7 +128,6 @@ export default function RouteScreen({ navigation }) {
 
   const handleEndChange = (address, coords) => {
     console.log("handleEndChange chamado com:", { address, coords });
-    setEndCoords(coords);
     if (coords) {
       if (
         coords.latitude < -33.0 ||
@@ -160,7 +147,23 @@ export default function RouteScreen({ navigation }) {
   const handleStopChange = (address, coords) => {
     console.log("handleStopChange chamado com:", { address, coords });
     setStop(address);
-    setStopCoords(coords);
+    if (coords) {
+      const stopData = {
+        address: coords.formattedAddress || address,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      };
+      setStops((prevStops) => {
+        const existingStop = prevStops.find((s) => s.address === stop);
+        if (!existingStop) {
+          return [
+            ...prevStops,
+            { id: Date.now().toString(), ...stopData, delivered: false },
+          ];
+        }
+        return prevStops;
+      });
+    }
   };
 
   const handleCalculateRoute = () => {
