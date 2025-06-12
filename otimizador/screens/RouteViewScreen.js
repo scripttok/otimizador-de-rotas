@@ -66,15 +66,36 @@ export default function RouteViewScreen() {
     });
   };
 
-  const onConfirmDelivery = (stopId) => {
-    setStops((prevStops) =>
-      prevStops
-        .map((stop) =>
-          stop.id === stopId ? { ...stop, delivered: true } : stop
-        )
-        .filter((stop) => !stop.delivered)
-    );
+  const onConfirmDelivery = (id) => {
+    setStops((prevStops) => {
+      const updatedStops = prevStops
+        .map((stop) => (stop.id === id ? { ...stop, delivered: true } : stop))
+        .filter((stop) => !stop.delivered);
+      return updatedStops;
+    });
   };
+
+  // Criar lista combinada de paradas e destino final
+  const stopsWithEnd = [
+    ...stops.map((stop) => ({
+      id: stop.id,
+      address: stop.address,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+      delivered: stop.delivered || false,
+    })),
+    ...(end?.latitude
+      ? [
+          {
+            id: "end",
+            address: end.address,
+            latitude: end.latitude,
+            longitude: end.longitude,
+            delivered: false, // Destino final começa como não entregue
+          },
+        ]
+      : []),
+  ];
 
   const initialRegion = start?.latitude
     ? {
@@ -102,18 +123,7 @@ export default function RouteViewScreen() {
           },
         ]
       : []),
-    ...stops.map((stop) => ({ ...stop, delivered: stop.delivered || false })),
-    ...(end?.latitude
-      ? [
-          {
-            id: "end",
-            address: end.address,
-            latitude: end.latitude,
-            longitude: end.longitude,
-            delivered: false,
-          },
-        ]
-      : []),
+    ...stopsWithEnd, // Inclui paradas e destino final nos marcadores
   ];
 
   return (
@@ -147,19 +157,27 @@ export default function RouteViewScreen() {
         {routeInfo.distance || "--"} km
       </Text>
       <FlatList
-        data={stops}
+        data={stopsWithEnd} // Usar a lista combinada
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <StopCard
             address={item.address}
             delivered={item.delivered || false}
-            isCurrentStop={index === 0 && !item.delivered}
-            onCheck={() => alert("Checkbox clicado")}
+            isCurrentStop={index === 0 && !item.delivered} // A primeira parada não entregue é a atual
+            onCheck={() => alert("Checkbox clicado")} // Placeholder
             onNavigateGoogle={() => onNavigateGoogle(item.address)}
             onNavigateWaze={() => onNavigateWaze(item.address)}
-            onRemove={() => alert("Remover clicado")}
-            onEdit={() => alert("Editar clicado")}
-            onConfirmDelivery={() => onConfirmDelivery(item.id)}
+            onRemove={() =>
+              item.id === "end"
+                ? alert("O destino final não pode ser removido")
+                : alert("Remover clicado")
+            } // Impedir remoção do destino final
+            onEdit={() => alert("Editar clicado")} // Placeholder
+            onConfirmDelivery={() =>
+              item.id === "end"
+                ? alert("Destino final confirmado!")
+                : onConfirmDelivery(item.id)
+            } // Tratar confirmação do destino final
           />
         )}
         style={styles.stopList}
