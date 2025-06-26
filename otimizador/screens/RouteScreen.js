@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -30,10 +30,14 @@ export default function RouteScreen({ navigation }) {
     latitude: null,
     longitude: null,
   });
-  const [endCoords, setEndCoords] = useState(null); // Novo estado para coordenadas do destino
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const scrollViewRef = useRef(null);
+
+  useEffect(() => {
+    console.log("RouteScreen renderizada");
+    handleUseLocation();
+  }, []);
 
   const handleUseLocation = async () => {
     setIsLoading(true);
@@ -56,8 +60,9 @@ export default function RouteScreen({ navigation }) {
     }
   };
 
-  const addStop = async () => {
-    if (stop.trim()) {
+  const addStop = async (stopData = null) => {
+    let result = stopData;
+    if (!result && stop.trim()) {
       if (stops.length >= MAX_STOPS) {
         Alert.alert(
           "Limite Atingido",
@@ -66,7 +71,6 @@ export default function RouteScreen({ navigation }) {
         return;
       }
       try {
-        let result;
         if (stopCoords && stopCoords.formattedAddress) {
           console.log(
             "Usando endereço da sugestão (parada):",
@@ -98,6 +102,10 @@ export default function RouteScreen({ navigation }) {
           Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
           return;
         }
+        if (stops.some((s) => s.address === result.address)) {
+          Alert.alert("Erro", "Esta parada já foi adicionada.");
+          return;
+        }
         console.log("Adicionando parada:", result);
         setStops([
           ...stops,
@@ -109,6 +117,34 @@ export default function RouteScreen({ navigation }) {
         console.log("Erro ao adicionar parada:", error);
         Alert.alert("Erro", error.message);
       }
+    } else if (result) {
+      if (stops.length >= MAX_STOPS) {
+        Alert.alert(
+          "Limite Atingido",
+          `Você pode adicionar até ${MAX_STOPS} paradas.`
+        );
+        return;
+      }
+      if (
+        result.latitude < -33.0 ||
+        result.latitude > 5.0 ||
+        result.longitude < -74.0 ||
+        result.longitude > -34.0
+      ) {
+        Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
+        return;
+      }
+      if (stops.some((s) => s.address === result.address)) {
+        Alert.alert("Erro", "Esta parada já foi adicionada.");
+        return;
+      }
+      console.log("Adicionando parada:", result);
+      setStops([
+        ...stops,
+        { id: Date.now().toString(), ...result, delivered: false },
+      ]);
+      setStop("");
+      setStopCoords(null);
     }
   };
 
@@ -136,7 +172,6 @@ export default function RouteScreen({ navigation }) {
 
   const handleEndChange = (address, coords) => {
     console.log("handleEndChange chamado com:", { address, coords });
-    setEndCoords(coords); // Armazenar coordenadas e formattedAddress
     if (coords) {
       if (
         coords.latitude < -33.0 ||
@@ -157,21 +192,53 @@ export default function RouteScreen({ navigation }) {
     console.log("handleStopChange chamado com:", { address, coords });
     setStop(address);
     setStopCoords(coords);
+    if (coords && coords.formattedAddress) {
+      addStop({
+        address: coords.formattedAddress,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      });
+    }
   };
 
   const handleCalculateRoute = () => {
+    console.log("handleCalculateRoute chamado");
+    console.log("Estado atual:", { start, stops, end });
+
     if (!start.address || !end.address) {
+      console.log("Validação falhou: início ou destino final não preenchidos");
       Alert.alert("Erro", "Por favor, preencha o início e o destino final.");
       return;
     }
     if (!start.latitude || !end.latitude) {
+      console.log(
+        "Validação falhou: coordenadas inválidas para início ou destino"
+      );
       Alert.alert(
         "Erro",
         "Endereços inválidos. Selecione endereços válidos nas sugestões."
       );
       return;
     }
-    navigation.navigate("RouteView", { start, stops, end });
+    if (
+      stops.length > 0 &&
+      stops.some((stop) => !stop.latitude || !stop.longitude)
+    ) {
+      console.log("Validação falhou: alguma parada sem coordenadas válidas");
+      Alert.alert(
+        "Erro",
+        "Uma ou mais paradas possuem coordenadas inválidas. Selecione endereços válidos."
+      );
+      return;
+    }
+
+    console.log("Navegando para RouteView com:", { start, stops, end });
+    try {
+      navigation.navigate("RouteView", { start, stops, end });
+    } catch (error) {
+      console.log("Erro na navegação:", error);
+      Alert.alert("Erro", "Falha ao navegar para a tela de rota.");
+    }
   };
 
   const handleInputFocus = (yPosition) => {
@@ -200,6 +267,8 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite o endereço inicial"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(0)}
+            enableVoice={true}
+            isStopInput={false}
           />
           <CustomButton
             title={isLoading ? "Carregando..." : "Usar Minha Localização"}
@@ -216,8 +285,10 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite uma parada"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(200)}
+            enableVoice={true}
+            isStopInput={true}
           />
-          <CustomButton title="Adicionar Parada" onPress={addStop} />
+          <CustomButton title="Adicionar Parada" onPress={() => addStop()} />
           <FlatList
             data={stops}
             keyExtractor={(item) => item.id}
@@ -248,6 +319,8 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite o destino final"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(400)}
+            enableVoice={true}
+            isStopInput={false}
           />
           <CustomButton
             title="Calcular Rota"
