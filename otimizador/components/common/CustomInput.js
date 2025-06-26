@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   View,
   TextInput,
@@ -8,9 +8,9 @@ import {
   TouchableOpacity,
   Dimensions,
 } from "react-native";
-import Modal from "react-native-modal";
 import { debounce } from "lodash";
-import { geocodeAddress } from "../../services/geocoding";
+import Icon from "@expo/vector-icons/MaterialIcons";
+import { startVoiceRecognition } from "../../services/voice";
 
 export default function CustomInput({
   value,
@@ -18,12 +18,17 @@ export default function CustomInput({
   placeholder,
   userLocation,
   onFocus,
+  enableVoice = false,
+  isStopInput = false, // Nova prop para identificar campo de parada
 }) {
-  const [isModalVisible, setModalVisible] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [inputNumber, setInputNumber] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef(null);
 
   const parseAddress = (input) => {
     const match = input.match(/^(.*?)(,\s*\d+)?$/);
@@ -34,6 +39,22 @@ export default function CustomInput({
       };
     }
     return { street: input.trim(), number: null };
+  };
+
+  const formatAddress = (data, userNumber) => {
+    const address = data.address || {};
+    const road = address.road || address.street || "Rua Desconhecida";
+    const houseNumber = userNumber || address.house_number || "S/N";
+    const neighbourhood =
+      address.neighbourhood ||
+      address.suburb ||
+      address.city_district ||
+      "Bairro Desconhecido";
+    const city =
+      address.city || address.town || address.village || "Cidade Desconhecida";
+    const state = address.state || "SP";
+    const postcode = address.postcode || "00000-000";
+    return `${road}, ${houseNumber}, ${neighbourhood}, ${city}, ${state}, ${postcode}`;
   };
 
   const fetchSuggestions = async (query) => {
@@ -48,11 +69,48 @@ export default function CustomInput({
       setHasSearched(true);
       const { street, number } = parseAddress(query);
       setInputNumber(number || "");
-      console.log("Buscando sugestões para:", query, { userLocation });
-      const suggestions = await geocodeAddress(query, userLocation);
-      console.log("Sugestões recebidas:", suggestions);
-      setSuggestions(suggestions);
-      setModalVisible(true);
+      const encodedQuery = encodeURIComponent(query);
+      const proximity = userLocation
+        ? `&proximity=${userLocation.latitude},${userLocation.longitude}`
+        : "";
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodedQuery}&addressdetails=1&limit=5&dedupe=1&countrycodes=br&viewbox=-47.2,-24.0,-46.0,-23.0${proximity}&accept-language=pt-BR`;
+      console.log("Requisição Nominatim (suggestions):", url);
+      console.log("userLocation:", userLocation);
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "OtimizadorDeRotas/1.0 (contato@exemplo.com)",
+        },
+      });
+      const data = await response.json();
+      console.log("Resposta Nominatim:", data);
+      if (!data || data.length === 0) {
+        setSuggestions([]);
+        setIsLoading(false);
+        return;
+      }
+      const filteredData = data.filter(
+        (item) =>
+          item.class === "highway" ||
+          item.addresstype === "road" ||
+          item.addresstype === "street" ||
+          item.addresstype === "place" ||
+          item.addresstype === "building" ||
+          item.addresstype === "residential"
+      );
+      console.log("Sugestões filtradas:", filteredData);
+      if (filteredData.length === 0) {
+        setSuggestions([]);
+        setIsLoading(false);
+        return;
+      }
+      const formattedSuggestions = filteredData.map((item) => ({
+        place_id: item.place_id,
+        display_name: formatAddress(item, number),
+        latitude: parseFloat(item.lat),
+        longitude: parseFloat(item.lon),
+      }));
+      console.log("Sugestões formatadas:", formattedSuggestions);
+      setSuggestions(formattedSuggestions);
       setIsLoading(false);
     } catch (error) {
       console.log("Erro ao buscar sugestões:", error);
@@ -66,8 +124,8 @@ export default function CustomInput({
     [userLocation]
   );
 
-  const handleTextChange = (text) => {
-    onChangeText(text);
+  const handleTextChange = (text, coords) => {
+    onChangeText(text, coords);
     debouncedFetchSuggestions(text);
   };
 
@@ -77,24 +135,56 @@ export default function CustomInput({
       longitude: suggestion.longitude,
       formattedAddress: suggestion.display_name,
     });
-    setModalVisible(false);
     setSuggestions([]);
     setHasSearched(false);
     setInputNumber("");
+    setIsFocused(false);
+    // Limpa o campo apenas se for o input de parada
+    if (isStopInput) {
+      onChangeText("");
+    }
+    inputRef.current.blur();
+  };
+
+  const handleVoiceInput = async () => {
+    if (isListening) return;
+    setIsListening(true);
+    setVoiceError(null);
+
+    try {
+      const recognizedText = await startVoiceRecognition();
+      if (recognizedText) {
+        handleTextChange(recognizedText);
+        setIsFocused(true);
+        inputRef.current.focus();
+      } else {
+        setVoiceError("Nenhum texto reconhecido. Tente novamente.");
+      }
+    } catch (err) {
+      setVoiceError("Erro ao usar reconhecimento de voz: " + err.message);
+    } finally {
+      setIsListening(false);
+    }
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.inputContainer}>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={value}
           onChangeText={handleTextChange}
           placeholder={placeholder}
           onFocus={() => {
+            setIsFocused(true);
             onFocus();
-            if (suggestions.length > 0 || hasSearched) {
-              setModalVisible(true);
+          }}
+          onBlur={() => {
+            if (!value || suggestions.length === 0) {
+              setIsFocused(false);
+              setSuggestions([]);
+              setHasSearched(false);
             }
           }}
         />
@@ -105,24 +195,27 @@ export default function CustomInput({
               onChangeText("");
               setSuggestions([]);
               setHasSearched(false);
-              setModalVisible(false);
               setInputNumber("");
+              setIsFocused(false);
             }}
           >
             <Text style={styles.clearButtonText}>X</Text>
           </TouchableOpacity>
         )}
+        {enableVoice && (
+          <TouchableOpacity onPress={handleVoiceInput} style={styles.micButton}>
+            <Icon
+              name={isListening ? "mic" : "mic-none"}
+              size={24}
+              color={isListening ? "#007AFF" : "#6B7280"}
+            />
+          </TouchableOpacity>
+        )}
       </View>
-      <Modal
-        isVisible={isModalVisible}
-        onBackdropPress={() => {
-          setModalVisible(false);
-          setSuggestions([]);
-          setHasSearched(false);
-        }}
-        style={styles.modal}
-      >
-        <View style={styles.modalContent}>
+      {voiceError && <Text style={styles.errorText}>{voiceError}</Text>}
+      {isListening && <Text style={styles.listeningText}>Ouvindo...</Text>}
+      {isFocused && (isLoading || hasSearched) && (
+        <View style={styles.suggestionsContainer}>
           {isLoading ? (
             <Text style={styles.noSuggestions}>Buscando...</Text>
           ) : hasSearched && suggestions.length === 0 ? (
@@ -154,10 +247,12 @@ export default function CustomInput({
                   </Text>
                 ) : null
               }
+              style={styles.suggestionsList}
+              scrollEnabled={false}
             />
           )}
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
@@ -166,16 +261,15 @@ const { height } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
     marginVertical: 10,
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   input: {
     flex: 1,
@@ -189,25 +283,44 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#6B7280",
   },
-  modal: {
-    justifyContent: "flex-start",
-    marginTop: height * 0.15,
+  micButton: {
+    padding: 10,
   },
-  modalContent: {
+  suggestionsContainer: {
     backgroundColor: "#FFFFFF",
     borderRadius: 8,
-    padding: 20,
-    maxHeight: height * 0.35,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginTop: 4,
+    maxHeight: 150,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  suggestionsList: {
+    maxHeight: 150,
   },
   suggestion: {
     padding: 10,
-    fontSize: 16,
+    fontSize: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
   noSuggestions: {
     padding: 10,
-    fontSize: 16,
+    fontSize: 14,
     color: "#6B7280",
+  },
+  errorText: {
+    color: "red",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  listeningText: {
+    color: "#007AFF",
+    fontSize: 12,
+    marginTop: 4,
   },
 });

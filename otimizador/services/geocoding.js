@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const GOOGLE_API_KEY = ""; // Substitua pela sua chave
+const GOOGLE_API_KEY = "AIzaSyBTIAjgX1-V53kMe4q9rbpcP5Sw6gCe9sM"; // Substitua pela sua chave
 const BASE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
 // Função para limitar requisições

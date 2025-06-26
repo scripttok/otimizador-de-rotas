@@ -14,7 +14,7 @@ import CustomInput from "../components/common/CustomInput";
 import CustomButton from "../components/common/CustomButton";
 import { MAX_STOPS } from "../utils/constants";
 import { getCurrentLocation } from "../services/geolocation";
-import { reverseGeocode } from "../services/geocoding";
+import { reverseGeocode, geocodeAddress } from "../services/geocoding";
 
 export default function RouteScreen({ navigation }) {
   const [start, setStart] = useState({
@@ -23,6 +23,7 @@ export default function RouteScreen({ navigation }) {
     longitude: null,
   });
   const [stop, setStop] = useState("");
+  const [stopCoords, setStopCoords] = useState(null);
   const [stops, setStops] = useState([]);
   const [end, setEnd] = useState({
     address: "",
@@ -59,8 +60,9 @@ export default function RouteScreen({ navigation }) {
     }
   };
 
-  const addStop = () => {
-    if (stop.trim()) {
+  const addStop = async (stopData = null) => {
+    let result = stopData;
+    if (!result && stop.trim()) {
       if (stops.length >= MAX_STOPS) {
         Alert.alert(
           "Limite Atingido",
@@ -68,39 +70,81 @@ export default function RouteScreen({ navigation }) {
         );
         return;
       }
-      const lastStop = stops.find((s) => s.address === stop);
-      if (lastStop) {
-        Alert.alert("Erro", "Esta parada já foi adicionada.");
-        return;
+      try {
+        if (stopCoords && stopCoords.formattedAddress) {
+          console.log(
+            "Usando endereço da sugestão (parada):",
+            stopCoords.formattedAddress
+          );
+          result = {
+            address: stopCoords.formattedAddress,
+            latitude: stopCoords.latitude,
+            longitude: stopCoords.longitude,
+          };
+        } else {
+          console.log("Chamando geocodeAddress para parada:", stop);
+          result = await geocodeAddress(stop, userLocation);
+        }
+
+        if (!result) {
+          Alert.alert(
+            "Erro",
+            "Endereço não encontrado. Tente outro endereço ou selecione uma sugestão."
+          );
+          return;
+        }
+        if (
+          result.latitude < -33.0 ||
+          result.latitude > 5.0 ||
+          result.longitude < -74.0 ||
+          result.longitude > -34.0
+        ) {
+          Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
+          return;
+        }
+        if (stops.some((s) => s.address === result.address)) {
+          Alert.alert("Erro", "Esta parada já foi adicionada.");
+          return;
+        }
+        console.log("Adicionando parada:", result);
+        setStops([
+          ...stops,
+          { id: Date.now().toString(), ...result, delivered: false },
+        ]);
+        setStop("");
+        setStopCoords(null);
+      } catch (error) {
+        console.log("Erro ao adicionar parada:", error);
+        Alert.alert("Erro", error.message);
       }
-      // Verificar se o endereço tem coordenadas válidas (fornecidas por CustomInput)
-      const stopData = stops.find((s) => s.address === stop) || {
-        address: stop,
-        latitude: null,
-        longitude: null,
-      };
-      if (!stopData.latitude || !stopData.longitude) {
+    } else if (result) {
+      if (stops.length >= MAX_STOPS) {
         Alert.alert(
-          "Erro",
-          "Selecione um endereço válido nas sugestões para a parada."
+          "Limite Atingido",
+          `Você pode adicionar até ${MAX_STOPS} paradas.`
         );
         return;
       }
       if (
-        stopData.latitude < -33.0 ||
-        stopData.latitude > 5.0 ||
-        stopData.longitude < -74.0 ||
-        stopData.longitude > -34.0
+        result.latitude < -33.0 ||
+        result.latitude > 5.0 ||
+        result.longitude < -74.0 ||
+        result.longitude > -34.0
       ) {
         Alert.alert("Erro", "O endereço retornado está fora do Brasil.");
         return;
       }
-      console.log("Adicionando parada:", stopData);
+      if (stops.some((s) => s.address === result.address)) {
+        Alert.alert("Erro", "Esta parada já foi adicionada.");
+        return;
+      }
+      console.log("Adicionando parada:", result);
       setStops([
         ...stops,
-        { id: Date.now().toString(), ...stopData, delivered: false },
+        { id: Date.now().toString(), ...result, delivered: false },
       ]);
       setStop("");
+      setStopCoords(null);
     }
   };
 
@@ -147,21 +191,12 @@ export default function RouteScreen({ navigation }) {
   const handleStopChange = (address, coords) => {
     console.log("handleStopChange chamado com:", { address, coords });
     setStop(address);
-    if (coords) {
-      const stopData = {
-        address: coords.formattedAddress || address,
+    setStopCoords(coords);
+    if (coords && coords.formattedAddress) {
+      addStop({
+        address: coords.formattedAddress,
         latitude: coords.latitude,
         longitude: coords.longitude,
-      };
-      setStops((prevStops) => {
-        const existingStop = prevStops.find((s) => s.address === stop);
-        if (!existingStop) {
-          return [
-            ...prevStops,
-            { id: Date.now().toString(), ...stopData, delivered: false },
-          ];
-        }
-        return prevStops;
       });
     }
   };
@@ -232,6 +267,8 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite o endereço inicial"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(0)}
+            enableVoice={true}
+            isStopInput={false}
           />
           <CustomButton
             title={isLoading ? "Carregando..." : "Usar Minha Localização"}
@@ -248,8 +285,10 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite uma parada"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(200)}
+            enableVoice={true}
+            isStopInput={true}
           />
-          <CustomButton title="Adicionar Parada" onPress={addStop} />
+          <CustomButton title="Adicionar Parada" onPress={() => addStop()} />
           <FlatList
             data={stops}
             keyExtractor={(item) => item.id}
@@ -280,6 +319,8 @@ export default function RouteScreen({ navigation }) {
             placeholder="Digite o destino final"
             userLocation={userLocation}
             onFocus={() => handleInputFocus(400)}
+            enableVoice={true}
+            isStopInput={false}
           />
           <CustomButton
             title="Calcular Rota"
